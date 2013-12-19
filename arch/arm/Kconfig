@@ -337,6 +337,13 @@ config ARCH_REALVIEW
 	help
 	  This enables support for ARM Ltd RealView boards.
 
+config ARCH_STM32429I
+	bool "STMicro STM32429I SoC"
+	depends on !MMU
+	select CPU_V7M
+	help
+	  This enables support for the STMicro STM32429I SoC
+
 config ARCH_VERSATILE
 	bool "ARM Ltd. Versatile family"
 	select ARCH_WANT_OPTIONAL_GPIOLIB
@@ -1006,6 +1013,8 @@ source "arch/arm/mach-socfpga/Kconfig"
 source "arch/arm/mach-spear/Kconfig"
 
 source "arch/arm/mach-sti/Kconfig"
+
+source "arch/arm/mach-stm32429i/Kconfig"
 
 source "arch/arm/mach-s3c24xx/Kconfig"
 

@@ -199,6 +199,9 @@ extern int __put_user_8(void *, unsigned long long);
 		__put_user_check(x,p);					\
 	 })
 
+#define user_addr_max() \
+	(segment_eq(get_fs(), USER_DS) ? TASK_SIZE : ~0UL)
+
 #else /* CONFIG_MMU */
 
 /*
@@ -218,12 +221,11 @@ static inline void set_fs(mm_segment_t fs)
 #define get_user(x,p)	__get_user(x,p)
 #define put_user(x,p)	__put_user(x,p)
 
+#define user_addr_max() (~0UL)
+
 #endif /* CONFIG_MMU */
 
 #define access_ok(type,addr,size)	(__range_ok(addr,size) == 0)
-
-#define user_addr_max() \
-	(segment_eq(get_fs(), USER_DS) ? TASK_SIZE : ~0UL)
 
 /*
  * The "__xxx" versions of the user access functions do not verify the

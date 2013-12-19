@@ -1,0 +1,12 @@
+if ARCH_STM32429I
+
+config MACH_STM32429I
+	bool
+	default y
+    select SERIAL_CORE
+    select SERIAL_CORE_CONSOLE
+	help
+	  Include support for the STMicro STM32429I-EVAL board
+
+endif
+

@@ -116,28 +116,82 @@ ENTRY(__switch_to)
 	.fnend
 ENDPROC(__switch_to)
 
+__invalid_entry1:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry1)
+__invalid_entry2:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry2)
+__invalid_entry3:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry3)
+__invalid_entry4:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry4)
+__invalid_entry5:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry5)
+__invalid_entry6:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry6)
+__invalid_entry7:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry7)
+__invalid_entry8:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry8)
+__invalid_entry9:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry9)
+__invalid_entry10:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry10)
+__invalid_entry12:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry12)
+__invalid_entry13:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry13)
+__invalid_entry15:
+	v7m_exception_entry
+1:	b	1b
+ENDPROC(__invalid_entry15)
+
+
 	.data
-	.align	8
+	.align	12
 /*
  * Vector table (64 words => 256 bytes natural alignment)
  */
 ENTRY(vector_table)
 	.long	0			@ 0 - Reset stack pointer
-	.long	__invalid_entry		@ 1 - Reset
-	.long	__invalid_entry		@ 2 - NMI
-	.long	__invalid_entry		@ 3 - HardFault
-	.long	__invalid_entry		@ 4 - MemManage
-	.long	__invalid_entry		@ 5 - BusFault
-	.long	__invalid_entry		@ 6 - UsageFault
-	.long	__invalid_entry		@ 7 - Reserved
-	.long	__invalid_entry		@ 8 - Reserved
-	.long	__invalid_entry		@ 9 - Reserved
-	.long	__invalid_entry		@ 10 - Reserved
+	.long	__invalid_entry1		@ 1 - Reset
+	.long	__invalid_entry2		@ 2 - NMI
+	.long	__invalid_entry3		@ 3 - HardFault
+	.long	__invalid_entry4		@ 4 - MemManage
+	.long	__invalid_entry5		@ 5 - BusFault
+	.long	__invalid_entry6		@ 6 - UsageFault
+	.long	__invalid_entry7		@ 7 - Reserved
+	.long	__invalid_entry8		@ 8 - Reserved
+	.long	__invalid_entry9		@ 9 - Reserved
+	.long	__invalid_entry10		@ 10 - Reserved
 	.long	vector_swi		@ 11 - SVCall
-	.long	__invalid_entry		@ 12 - Debug Monitor
-	.long	__invalid_entry		@ 13 - Reserved
+	.long	__invalid_entry12		@ 12 - Debug Monitor
+	.long	__invalid_entry13		@ 13 - Reserved
 	.long	__pendsv_entry		@ 14 - PendSV
-	.long	__invalid_entry		@ 15 - SysTick
-	.rept	64 - 16
-	.long	__irq_entry		@ 16..64 - External Interrupts
+	.long	__invalid_entry15		@ 15 - SysTick
+	.rept	128 - 16
+	.long	__irq_entry		@ 16..128 - External Interrupts
 	.endr

@@ -164,7 +164,12 @@ __after_proc_init:
 #endif
 	mcr	p15, 0, r0, c1, c0, 0		@ write control reg
 #endif /* CONFIG_CPU_CP15 */
+#if defined(CONFIG_CPU_THUMBONLY)
+	mov	r3, r13
+	mov	pc, r3
+#else
 	mov	pc, r13
+#endif
 ENDPROC(__after_proc_init)
 	.ltorg
 
