@@ -45,7 +45,12 @@ ENDPROC(cpu_v7m_reset)
  *	IRQs are already disabled.
  */
 ENTRY(cpu_v7m_do_idle)
+#ifdef CONFIG_MACH_STM32429I
+    /* why wfi not working ? */
+    nop
+#else
 	wfi
+#endif
 	mov	pc, lr
 ENDPROC(cpu_v7m_do_idle)
 
