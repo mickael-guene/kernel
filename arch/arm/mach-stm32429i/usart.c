@@ -41,7 +41,12 @@ static irqreturn_t stm_usart_isr(int irq, void *dev_id)
     struct circ_buf *xmit = &port->state->xmit;
 
     /* receipt buffer */
-    if (sr & USART_SR_RXNE) {
+    if (sr & USART_SR_ORE) {
+        /* we lost some input data ... avoid driver being stuck */
+        /* a read to USART_DR is need to clear interrupt */
+        struct tty_port *tty = &port->state->port;
+        unsigned int ch = PREAD(port, USART_DR);
+    } else if (sr & USART_SR_RXNE) {
         struct tty_port *tty = &port->state->port;
         unsigned int ch = PREAD(port, USART_DR);
        

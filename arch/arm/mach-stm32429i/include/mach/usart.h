@@ -13,6 +13,7 @@ void stm32429i_uart_init(void);
 #define USART_GTPR  0x18
 
 /* bit mask */
+#define USART_SR_ORE        (1<<3)
 #define USART_SR_RXNE       (1<<5)
 #define USART_SR_TXE        (1<<7)
 
