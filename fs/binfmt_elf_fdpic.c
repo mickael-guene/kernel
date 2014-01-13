@@ -319,8 +319,9 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
 	/* there's now no turning back... the old userspace image is dead,
 	 * defunct, deceased, etc. after this point we have to exit via
 	 * error_kill */
-	set_personality(PER_LINUX_FDPIC);
-	if (elf_read_implies_exec(&exec_params.hdr, executable_stack))
+    /* TODO : call SET_PERSONALITY is certainly better .... */
+	set_personality(PER_LINUX_FDPIC | PER_LINUX_32BIT);
+	if (elf_read_implies_exec(exec_params.hdr, executable_stack))
 		current->personality |= READ_IMPLIES_EXEC;
 
 	setup_new_exec(bprm);
@@ -420,6 +421,10 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
 	kdebug("- brk         %lx", current->mm->brk);
 	kdebug("- start_stack %lx", current->mm->start_stack);
 
+	/* everything is now ready... get the userspace context ready to roll */
+	entryaddr = interp_params.entry_addr ?: exec_params.entry_addr;
+	start_thread(regs, entryaddr, current->mm->start_stack);
+
 #ifdef ELF_FDPIC_PLAT_INIT
 	/*
 	 * The ABI may specify that certain registers be set up in special
@@ -431,10 +436,6 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
 	ELF_FDPIC_PLAT_INIT(regs, exec_params.map_addr, interp_params.map_addr,
 			    dynaddr);
 #endif
-
-	/* everything is now ready... get the userspace context ready to roll */
-	entryaddr = interp_params.entry_addr ?: exec_params.entry_addr;
-	start_thread(regs, entryaddr, current->mm->start_stack);
 
 	retval = 0;
 

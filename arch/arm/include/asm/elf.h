@@ -29,6 +29,7 @@ typedef struct user_fp elf_fpregset_t;
 
 #define EF_ARM_BE8		0x00800000	/* ABI 4,5 */
 #define EF_ARM_LE8		0x00400000	/* ABI 4,5 */
+#define EF_ARM_FDPIC		0x00001000
 #define EF_ARM_MAVERICK_FLOAT	0x00000800	/* ABI 0 */
 #define EF_ARM_VFP_FLOAT	0x00000400	/* ABI 0 */
 #define EF_ARM_SOFT_FLOAT	0x00000200	/* ABI 0 */
@@ -106,6 +107,10 @@ struct task_struct;
 int dump_task_regs(struct task_struct *t, elf_gregset_t *elfregs);
 #define ELF_CORE_COPY_TASK_REGS dump_task_regs
 
+#define elf_check_fdpic(x)		((x)->e_flags & EF_ARM_FDPIC)
+#define elf_check_const_displacement(x)	((x)->e_flags & EF_ARM_PIC)
+
+#define ELF_FDPIC_CORE_EFLAGS	EF_ARM_FDPIC
 #define CORE_DUMP_USE_REGSET
 #define ELF_EXEC_PAGESIZE	4096
 
@@ -120,6 +125,14 @@ int dump_task_regs(struct task_struct *t, elf_gregset_t *elfregs);
    registered with atexit, as per the SVR4 ABI.  A value of 0 means we 
    have no such handler.  */
 #define ELF_PLAT_INIT(_r, load_addr)	(_r)->ARM_r0 = 0
+
+/* fdpic binary startup macro */
+#define ELF_FDPIC_PLAT_INIT(_r, _exec_map_addr, _interp_map_addr, dynamic_addr) \
+do { \
+    (_r)->ARM_r7 = _exec_map_addr; \
+    (_r)->ARM_r8 = _interp_map_addr; \
+    (_r)->ARM_r9 = dynamic_addr; \
+} while(0)
 
 extern void elf_set_personality(const struct elf32_hdr *);
 #define SET_PERSONALITY(ex)	elf_set_personality(&(ex))

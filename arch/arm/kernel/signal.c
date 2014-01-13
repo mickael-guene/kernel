@@ -21,6 +21,11 @@
 #include <asm/unistd.h>
 #include <asm/vfp.h>
 
+struct fdpic_func_descriptor {
+	unsigned long	text;
+	unsigned long	GOT;
+};
+
 /*
  * For ARM syscalls, we encode the syscall number into the instruction.
  */
@@ -32,6 +37,12 @@
  */
 #define MOV_R7_NR_SIGRETURN	(0xe3a07000 | (__NR_sigreturn - __NR_SYSCALL_BASE))
 #define MOV_R7_NR_RT_SIGRETURN	(0xe3a07000 | (__NR_rt_sigreturn - __NR_SYSCALL_BASE))
+
+const unsigned long sigreturn_fdpic_codes[3] = {
+    0xe59fc004, /* ldr r12, [pc, #4] to read function descriptor */
+    0xe59c9004, /* ldr r9, [r12, #4] to setup got */
+    0xe59cf000  /* ldr pc, [r12] to jump into restorer */
+};
 
 /*
  * For Thumb syscalls, we pass the syscall number via r7.  We therefore
@@ -152,7 +163,7 @@ static int restore_vfp_context(struct vfp_sigframe __user *frame)
  */
 struct sigframe {
 	struct ucontext uc;
-	unsigned long retcode[2];
+	unsigned long retcode[4];
 };
 
 struct rt_sigframe {
@@ -354,10 +365,18 @@ static int
 setup_return(struct pt_regs *regs, struct ksignal *ksig,
 	     unsigned long __user *rc, void __user *frame)
 {
-	unsigned long handler = (unsigned long)ksig->ka.sa.sa_handler;
+    unsigned long handler;
 	unsigned long retcode;
 	int thumb = 0;
 	unsigned long cpsr = regs->ARM_cpsr & ~(PSR_f | PSR_E_BIT);
+    unsigned long r9 = 0;
+
+	if (current->personality & FDPIC_FUNCPTRS) {
+		struct fdpic_func_descriptor __user *funcptr = (struct fdpic_func_descriptor __user *)ksig->ka.sa.sa_handler;
+		__get_user(handler, &funcptr->text);
+		__get_user(r9, &funcptr->GOT);
+	} else
+		handler = (unsigned long)ksig->ka.sa.sa_handler;
 
 	cpsr |= PSR_ENDSTATE;
 
@@ -387,7 +406,25 @@ setup_return(struct pt_regs *regs, struct ksignal *ksig,
 #endif
 
 	if (ksig->ka.sa.sa_flags & SA_RESTORER) {
-		retcode = (unsigned long)ksig->ka.sa.sa_restorer;
+        if (current->personality & FDPIC_FUNCPTRS) {
+            /* for fdpic we ensure that restorer is call with a correct r9 value
+             * for that we need to write code on stack that setup r9 and jump back to restorer value
+             */
+			struct fdpic_func_descriptor __user *funcptr = (struct fdpic_func_descriptor __user *)ksig->ka.sa.sa_restorer;
+
+            if (__put_user(sigreturn_fdpic_codes[0],   rc) ||
+                __put_user(sigreturn_fdpic_codes[1],   rc+1) ||
+                __put_user(sigreturn_fdpic_codes[2],   rc+2) ||
+                __put_user((unsigned long)funcptr,     rc+3))
+                return 1;
+
+            /* last word of rc is data and so we don't need to invalidate icache for it */
+            flush_icache_range((unsigned long)rc, (unsigned long)(rc + 3));
+
+            retcode = (unsigned long)rc;
+        } else {
+		    retcode = (unsigned long)ksig->ka.sa.sa_restorer;
+        }
 	} else {
 		unsigned int idx = thumb << 1;
 
@@ -432,6 +469,8 @@ setup_return(struct pt_regs *regs, struct ksignal *ksig,
 	regs->ARM_lr = retcode;
 	regs->ARM_pc = handler;
 	regs->ARM_cpsr = cpsr;
+	if (current->personality & FDPIC_FUNCPTRS)
+		regs->ARM_r9 = r9;
 
 	return 0;
 }
