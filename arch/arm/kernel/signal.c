@@ -44,6 +44,12 @@ const unsigned long sigreturn_fdpic_codes[3] = {
     0xe59cf000  /* ldr pc, [r12] to jump into restorer */
 };
 
+const unsigned long sigreturn_fdpic__thumb_codes[3] = {
+    0xc008f8df, /* ldr r12, [pc, #8] to read function descriptor */
+    0x9004f8dc, /* ldr r9, [r12, #4] to setup got */
+    0xf000f8dc  /* ldr pc, [r12] to jump into restorer */
+};
+
 /*
  * For Thumb syscalls, we pass the syscall number via r7.  We therefore
  * need two 16-bit instructions.
@@ -412,16 +418,24 @@ setup_return(struct pt_regs *regs, struct ksignal *ksig,
              */
 			struct fdpic_func_descriptor __user *funcptr = (struct fdpic_func_descriptor __user *)ksig->ka.sa.sa_restorer;
 
-            if (__put_user(sigreturn_fdpic_codes[0],   rc) ||
-                __put_user(sigreturn_fdpic_codes[1],   rc+1) ||
-                __put_user(sigreturn_fdpic_codes[2],   rc+2) ||
-                __put_user((unsigned long)funcptr,     rc+3))
-                return 1;
+            if (thumb) {
+                if (__put_user(sigreturn_fdpic__thumb_codes[0],   rc) ||
+                    __put_user(sigreturn_fdpic__thumb_codes[1],   rc+1) ||
+                    __put_user(sigreturn_fdpic__thumb_codes[2],   rc+2) ||
+                    __put_user((unsigned long)funcptr,     rc+3))
+                    return 1;
+            } else {
+                if (__put_user(sigreturn_fdpic_codes[0],   rc) ||
+                    __put_user(sigreturn_fdpic_codes[1],   rc+1) ||
+                    __put_user(sigreturn_fdpic_codes[2],   rc+2) ||
+                    __put_user((unsigned long)funcptr,     rc+3))
+                    return 1;
+            }
 
             /* last word of rc is data and so we don't need to invalidate icache for it */
             flush_icache_range((unsigned long)rc, (unsigned long)(rc + 3));
 
-            retcode = (unsigned long)rc;
+            retcode = (unsigned long)rc + thumb;
         } else {
 		    retcode = (unsigned long)ksig->ka.sa.sa_restorer;
         }
