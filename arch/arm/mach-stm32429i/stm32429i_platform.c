@@ -22,7 +22,7 @@ static void __init stm32429i_init(void)
 
     /* clocks for uart1 */
     //*((volatile unsigned int *)0x40011008) = 0x305;
-    *((volatile unsigned int *)0x40011008) = 0x0c1;
+    *((volatile unsigned int *)0x40011008) = 0x0c1 * 3;/* 38400 baud */
     *((volatile unsigned int *)0x4001100c) = 0x200c;
 
     /* init uart */

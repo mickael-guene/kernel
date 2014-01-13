@@ -167,7 +167,7 @@ static void stm_set_baud_rate(struct uart_port *port, int baudrate)
 {
     //FIXME : for now set 115200
     //PWRITE(port, USART_BRR, 0x305);
-    PWRITE(port, USART_BRR, 0x0c1);
+    PWRITE(port, USART_BRR, (0x0c1 * 3)); /* 38400 baud */
 }
 
 static int stm_port_startup(struct uart_port *port)
