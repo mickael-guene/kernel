@@ -21,8 +21,7 @@ static void __init stm32429i_init(void)
     *((volatile unsigned int *)0x40023844) |= 0x10;
 
     /* clocks for uart1 */
-    //*((volatile unsigned int *)0x40011008) = 0x305;
-    *((volatile unsigned int *)0x40011008) = 0x0c1 * 3;/* 38400 baud */
+    *((volatile unsigned int *)0x40011008) = 0x222;/* 38400 baud */
     *((volatile unsigned int *)0x4001100c) = 0x200c;
 
     /* init uart */
@@ -73,7 +72,7 @@ static void __init stm32429i_timer_init(void)
     *((volatile unsigned int *)0x40023840) |= 0x10;
     /* setup prescaler and reload */
     *((volatile unsigned int *)0x40001028) = 1000;
-    *((volatile unsigned int *)0x4000102c) = 445;
+    *((volatile unsigned int *)0x4000102c) = 200;
     /* enable interrupt */
     *((volatile unsigned int *)0x4000100c) |= 0x1;
     /* start it */
