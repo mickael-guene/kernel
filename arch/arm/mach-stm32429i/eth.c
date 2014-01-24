@@ -20,13 +20,13 @@
 #define DEBUG
 
 #ifdef DEBUG
-#define debug(fmt,args...)	printk("ETHERNET : " fmt, ##args)
+#define debug(fmt,args...)	    printk(KERN_DEBUG fmt, ##args)
 #else
 #define debug(fmt,args...)
 #endif	/* DEBUG */
-#define info(fmt,args...)	printk("ETHERNET : " fmt, ##args)
-#define warning(fmt,args...)	printk("ETHERNET : " fmt, ##args)
-#define error(fmt,args...)	printk("ETHERNET : " fmt, ##args)
+#define info(fmt,args...)       printk(KERN_INFO fmt, ##args)
+#define warning(fmt,args...)    printk(KERN_WARNING fmt, ##args)
+#define error(fmt,args...)	    printk(KERN_ERR fmt, ##args)
 
 /* registers description */
 struct stm32_mac_regs {
@@ -214,9 +214,6 @@ static int stm32_eth_start(struct net_device *dev)
     stm->regs->dmardlar = stm->rx_bd_dma_phys_addr;
 	stm->regs->dmatdlar = stm->tx_bd_dma_phys_addr;
 
-    debug("after stm->regs->dmardlar = 0x%08x\n", stm->regs->dmardlar);
-    debug("after stm->regs->dmatdlar = 0x%08x\n", stm->regs->dmatdlar);
-
     /* flush transmit fifo */
     stm->regs->dmaomr |= STM32_MAC_DMAOMR_FTF;
     for (i = 0; i < 10; i++) {
@@ -225,17 +222,14 @@ static int stm32_eth_start(struct net_device *dev)
 		msleep(1);
 	}
 	if (i == 10) {
-		printk("FIFO flush timeout\n");
+        warning("FIFO flush timeout\n");
 		rv = -EBUSY;
 		goto out;
 	}
     /* start ethernet controller */
     stm->regs->maccr |= STM32_MAC_CR_TE | STM32_MAC_CR_RE;
-    //stm->regs->maccr |= STM32_MAC_CR_TE;
     /* start dma */
     stm->regs->dmaomr |= STM32_MAC_DMAOMR_ST | STM32_MAC_DMAOMR_SR;
-    //debug("Only start tx to debug\n");
-    //stm->regs->dmaomr |= STM32_MAC_DMAOMR_ST;
 
 	rv = 0;
 out:
@@ -312,9 +306,6 @@ static int stm32_eth_buffers_alloc(struct net_device *dev)
     stm->rx_bd_dma_phys_addr = (dma_addr_t) stm->rx_bd;
     stm->tx_bd = (struct stm32_eth_dma_bd *) sram_alloc(sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num);
     stm->tx_bd_dma_phys_addr = (dma_addr_t) stm->tx_bd;
-
-    debug("rx_bd_dma_phys_addr = 0x%08x/0x%p\n", stm->rx_bd_dma_phys_addr,stm->rx_bd);
-    debug("tx_bd_dma_phys_addr = 0x%08x/0x%p\n", stm->tx_bd_dma_phys_addr,stm->tx_bd);
 
     if (!stm->rx_bd || !stm->tx_bd) {
 		rv = -ENOMEM;
@@ -404,9 +395,6 @@ static int stm32_eth_buffers_alloc(struct net_device *dev)
     stm->tx_bd = dma_alloc_coherent(NULL, sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num,
 			                        &stm->tx_bd_dma_phys_addr, GFP_KERNEL | GFP_DMA);
 
-    debug("tx_bd_dma_phys_addr = 0x%08x/0x%08x\n", stm->rx_bd_dma_phys_addr,stm->rx_bd);
-    debug("tx_bd_dma_phys_addr = 0x%08x/0x%08x\n", stm->tx_bd_dma_phys_addr,stm->tx_bd);
-
     if (!stm->rx_bd || !stm->tx_bd) {
 		rv = -ENOMEM;
 		goto out;
@@ -452,7 +440,6 @@ static void stm32_eth_tx_complete(struct net_device *dev)
 {
     struct stm32_eth_priv *stm = netdev_priv(dev);
     
-    //debug("stm32_eth_tx_complete\n");
     /* at least one frame has been transmitted */
     spin_lock(&stm->tx_lock);
     while (stm->tx_buffer_nb_in_queue) {
@@ -552,7 +539,6 @@ static int stm32_eth_rx_get(struct net_device *dev, int processed, int budget)
         /* update stats */        
         stm->stat.rx_packets++;
 		stm->stat.rx_bytes += len;
-        //debug("R[%d] / len = %d \n", index, len);
 
 next:
         /* give ownwer ship to dma and move index */
@@ -611,36 +597,11 @@ static int stm32_eth_rx_poll(struct napi_struct *napi, int budget)
 {
 	struct stm32_eth_priv *stm = container_of(napi, struct stm32_eth_priv,napi);
 	struct net_device *dev = stm->dev;
-	unsigned long flags;
 	int rx = 0;
-    int more;
 
-    /*debug("stm32_eth_rx_poll\n");*/
-#if 0
-    do {
-        more = 0;
-        rx = stm32_eth_rx_get(dev, rx, budget);
-		if (!(rx < budget)) {
-			stm->regs->dmaier |= STM32_MAC_DMAIER_RIE;
-			break;
-		}
-
-        spin_lock_irqsave(&stm->rx_lock, flags);
-        stm->regs->dmaier |= STM32_MAC_DMAIER_RIE;
-        if (!(stm->rx_bd[stm->rx_done_idx].status & STM32_DMA_RBD_DMA_OWN)) {
-            stm->regs->dmaier &= ~STM32_MAC_DMAIER_RIE;
-			stm->regs->dmasr = STM32_MAC_DMASR_RX_MSK;
-			more = 1;
-		}
-        spin_unlock_irqrestore(&stm->rx_lock, flags);
-    } while (more && napi_reschedule(napi));
-#else
-    flags = 0;
-    more = 0;
     rx = stm32_eth_rx_get(dev, rx, budget);
     stm->regs->dmaier |= STM32_MAC_DMAIER_RIE;
     napi_complete(napi);
-#endif
 
     return rx;
 }
@@ -684,7 +645,7 @@ static int stm32_mdio_read(struct mii_bus *bus, int phy_id, int reg)
     int i;
     int res;
 
-    //debug("stm32_mdio_read phy%d[%d]\n", phy_id, reg);
+    debug("stm32_mdio_read phy%d[%d]\n", phy_id, reg);
     phy_id &= STM32_MAC_MIIAR_PA_MSK;
     val = phy_id << STM32_MAC_MIIAR_PA_BIT;
     reg &= STM32_MAC_MIIAR_MR_MSK;
@@ -708,7 +669,7 @@ static int stm32_mdio_read(struct mii_bus *bus, int phy_id, int reg)
 		res = 0xFFFF;
 	}
 
-    //debug(" phy%d[%d] = 0x%08x\n", phy_id, reg, res);
+    debug(" phy%d[%d] = 0x%08x\n", phy_id, reg, res);
 
 	return res;
 }
@@ -738,7 +699,6 @@ static void stm32_handle_link_change(struct net_device *ndev)
 	unsigned long flags;
 	s32 status_change = 0;
 
-    //debug("stm32_handle_link_change\n");
     /* test for real changes */
 	spin_lock_irqsave(&stm->lock, flags);
 	if (phydev->link) {
@@ -779,23 +739,22 @@ static int stm32_mii_probe(struct net_device *ndev)
 	for (phy_addr = 0; phy_addr < PHY_MAX_ADDR; phy_addr++) {
 		if (stm->mii_bus->phy_map[phy_addr]) {
 			phydev = stm->mii_bus->phy_map[phy_addr];
-			printk(KERN_INFO "found PHY id 0x%x addr %d\n", phydev->phy_id, phydev->addr);
+			info("found PHY id 0x%x addr %d\n", phydev->phy_id, phydev->addr);
 			break;
 		}
 	}
 
 	if (!phydev) {
-		printk(KERN_ERR "%s: no PHY found\n", ndev->name);
+		warning("%s: no PHY found\n", ndev->name);
 		return -ENODEV;
 	}
 
 	/* Attach to the PHY */
-
-	printk(KERN_INFO "%s: using MII interface\n", ndev->name);
+	info("%s: using MII interface\n", ndev->name);
 	phydev = phy_connect(ndev, dev_name(&phydev->dev), &stm32_handle_link_change, PHY_INTERFACE_MODE_MII);
 
 	if (IS_ERR(phydev)) {
-		printk(KERN_ERR "%s: Could not attach to PHY\n", ndev->name);
+		error("%s: Could not attach to PHY\n", ndev->name);
 		return PTR_ERR(phydev);
 	}
 
@@ -949,7 +908,6 @@ static int stm32_netdev_xmit(struct sk_buff *skb, struct net_device *dev)
 	unsigned long flags;
 	int rv;
     int index;
-    //debug("stm32_netdev_xmit stm=0x%p\n", stm);
     
     /* sanity check */
     if (unlikely(skb->len > stm->frame_max_size)) {
@@ -965,7 +923,7 @@ static int stm32_netdev_xmit(struct sk_buff *skb, struct net_device *dev)
     if (stm->tx_is_blocked || stm->tx_buffer_nb_in_queue >= stm->tx_buf_num) {
         spin_unlock_irqrestore(&stm->tx_lock, flags);
 		rv = NETDEV_TX_BUSY;
-		printk("stm32_netdev_xmit fifo full => driver bug ? (don't think so in case another client has already start to push data)\n");
+		warning("stm32_netdev_xmit fifo full => driver bug ? (don't think so in case another client has already start to push data)\n");
 		goto out;
 	}
     stm->tx_buffer_nb_in_queue++;
@@ -984,11 +942,6 @@ static int stm32_netdev_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
     /* full ethernet frame is in this buffer */
     stm->tx_bd[index].stat |= STM32_DMA_TBD_FS | STM32_DMA_TBD_LS | STM32_DMA_TBD_DMA_OWN | STM32_DMA_TBD_DMA_IC;
-    //debug("skb = 0x%p / data = 0x%p / len =%d\n", skb, skb->data, skb->len);
-    //debug("stm->tx_bd[%d].stat = 0x%08x\n", index, stm->tx_bd[index].stat);
-    //debug("stm->tx_bd[%d].ctrl = 0x%08x\n", index, stm->tx_bd[index].ctrl);
-    //debug("stm->tx_bd[%d].buf = 0x%08x\n", index, stm->tx_bd[index].buf);
-    //debug("stm->tx_bd[%d].next = 0x%08x\n", index, stm->tx_bd[index].next);
 
     /* request dma to poll current buffer descritor in case it was in suspend mode */
     stm->regs->dmatpdr = 0;
@@ -999,7 +952,7 @@ static int stm32_netdev_xmit(struct sk_buff *skb, struct net_device *dev)
         stm->tx_is_blocked = 1;
         netif_stop_queue(dev);
 		spin_unlock_irqrestore(&stm->tx_lock, flags);
-        debug("tx queue fifo is full\n");
+        info("tx queue fifo is full\n");
     } else
         spin_unlock_irqrestore(&stm->tx_lock, flags);
 
@@ -1032,6 +985,7 @@ static struct net_device_stats *stm32_netdev_get_stats(struct net_device *dev)
 {
 	struct stm32_eth_priv	*stm = netdev_priv(dev);
 
+    debug("stm32_netdev_get_stats\n");
 	return &stm->stat;
 }
 
