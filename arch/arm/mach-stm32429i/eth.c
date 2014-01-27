@@ -1,4 +1,5 @@
 #include <linux/init.h>
+#include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <asm/io.h>
@@ -8,10 +9,9 @@
 #include <linux/phy.h>
 #include <linux/netdevice.h>
 #include <asm/setup.h>
+#include <linux/genalloc.h>
 
 #include <mach/eth.h>
-
-#define USE_SRAM_ALLOCATOR 1
 
 /*
  * Define this to enable debugging msgs
@@ -27,6 +27,18 @@
 #define info(fmt,args...)       printk(KERN_INFO fmt, ##args)
 #define warning(fmt,args...)    printk(KERN_WARNING fmt, ##args)
 #define error(fmt,args...)	    printk(KERN_ERR fmt, ##args)
+
+/* dma parameters */
+#ifdef MODULE_PARAM_PREFIX
+#undef MODULE_PARAM_PREFIX
+#endif
+#define MODULE_PARAM_PREFIX "stm32429i."
+
+static unsigned int dma_addr = 0x20000000;
+module_param(dma_addr, uint, S_IRUGO);
+static unsigned int dma_size = 128*1024;
+module_param(dma_size, uint, S_IRUGO);
+static struct gen_pool *dma_pool;
 
 /* registers description */
 struct stm32_mac_regs {
@@ -156,11 +168,10 @@ struct stm32_eth_priv {
      /* descriptors */
     struct stm32_eth_dma_bd *tx_bd;
     struct stm32_eth_dma_bd *rx_bd;
+    void **tx_buffer;
+    void **rx_buffer;
     dma_addr_t tx_bd_dma_phys_addr;
     dma_addr_t rx_bd_dma_phys_addr;
-     /* buffers */
-    struct sk_buff **rx_skb;
-    struct sk_buff **tx_skb;
      /* indexes */
       /* tx */
     u32 tx_next_free_buffer_index;
@@ -174,6 +185,59 @@ struct stm32_eth_priv {
 	u32 rx_buf_num;
 	u32 tx_buf_num;
 };
+
+/* added in kernel 3.13 only */
+static void *gen_pool_dma_alloc(struct gen_pool *pool, size_t size, dma_addr_t *dma)
+{
+        unsigned long vaddr;
+
+        if (!pool)
+                return NULL;
+
+        vaddr = gen_pool_alloc(pool, size);
+        if (!vaddr)
+                return NULL;
+
+        *dma = gen_pool_virt_to_phys(pool, vaddr);
+
+        return (void *)vaddr;
+}
+
+/* dma memory pool */
+static int init_dma_mem_pool(void)
+{
+    void __iomem *virt;
+    int rv;
+
+    info("stm32429i ethernet dma address = 0x%08x\n", dma_addr);
+    info("stm32429i ethernet dma size = %d bytes\n", dma_size);
+    /* create dma pool */
+    dma_pool = gen_pool_create(ilog2(16), -1);
+    if (!dma_pool) {
+        error("Unable to create ethernet dma pool memory\n");
+        rv = -ENOMEM;
+        goto create_pool_error;
+    }
+    /* add memory to it */
+    virt = ioremap((phys_addr_t) dma_addr, dma_size);
+    rv = gen_pool_add_virt(dma_pool, (unsigned long) virt, (phys_addr_t) dma_addr, dma_size, -1);
+    if (rv < 0) {
+        error("Unable to add memory to dma pool\n");
+        rv = -ENOMEM;
+        goto add_chunk_error;
+    }
+
+    rv = 0;
+
+add_chunk_error:
+    if (rv) {
+        gen_pool_destroy(dma_pool);
+        iounmap(virt);
+    }
+create_pool_error:
+
+    return rv;
+}
 
 /* real job functions */
 static void stm32_eth_stop(struct net_device *dev)
@@ -238,147 +302,41 @@ out:
 	return rv;
 }
 
-#if USE_SRAM_ALLOCATOR
-static char *sram_ptr = (char *) 0x20000000;
-const int sram_size = 128 * 1024;
-
-static void sram_free_all(void)
-{
-    sram_ptr = (char *) 0x20000000;
-}
-
-static void *sram_alloc(int size)
-{
-    void *res;
-    /* align sram pointer */
-    if ((unsigned int) sram_ptr % 16)
-        sram_ptr = (char *) (((unsigned int)sram_ptr + 15) & ~0xf);
-    res = sram_ptr;
-    sram_ptr += size;
-
-    return res;
-}
-
 static void stm32_eth_buffers_free(struct net_device *dev)
 {
     struct stm32_eth_priv *stm = netdev_priv(dev);
     int i;
 
-    /* tx part */
+    /* transmit buffers */
     if (stm->tx_bd) {
-        /* skb buffers */
+        /* free buffers */
         for (i = 0; i < stm->tx_buf_num; i++) {
-            if (stm->tx_skb[i] != NULL) {
-                dev_kfree_skb(stm->tx_skb[i]);
-                stm->tx_skb[i] = NULL;
+            if (stm->tx_buffer[i]) {
+                gen_pool_free(dma_pool, (unsigned long) stm->tx_buffer[i], stm->frame_max_size + 4);
+                stm->tx_buffer[i] = NULL;
+                stm->tx_bd[i].buf = 0;
             }
         }
-        /* buffer descriptors */
-            /* nothing to do */
-         stm->tx_bd = NULL;
-    }
-
-    /* rx part */
-    if (stm->rx_bd) {
-        /* skb buffers */
-        for (i = 0; i < stm->rx_buf_num; i++) {
-		    dev_kfree_skb(stm->rx_skb[i]);
-		    stm->rx_skb[i] = NULL;
-        }
-        /* buffer descriptors */
-            /* nothing to do */
-	    stm->rx_bd = NULL;
-    }
-
-    /* deallocate buffers descriptor + rx/tx buffers */
-    sram_free_all();
-}
-
-static int stm32_eth_buffers_alloc(struct net_device *dev)
-{
-    struct stm32_eth_priv *stm = netdev_priv(dev);
-    int i;
-    int rv;
-
-    debug("stm32_eth_buffers_alloc\n");
-    /* allocate buffer descriptor memory */
-    stm->rx_bd = (struct stm32_eth_dma_bd *) sram_alloc(sizeof(struct stm32_eth_dma_bd) * stm->rx_buf_num);
-    stm->rx_bd_dma_phys_addr = (dma_addr_t) stm->rx_bd;
-    stm->tx_bd = (struct stm32_eth_dma_bd *) sram_alloc(sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num);
-    stm->tx_bd_dma_phys_addr = (dma_addr_t) stm->tx_bd;
-
-    if (!stm->rx_bd || !stm->tx_bd) {
-		rv = -ENOMEM;
-		goto out;
-	}
-
-    /* allocate skbs rx buffers */
-    for (i = 0; i < stm->rx_buf_num; i++) {
-		stm->rx_skb[i] = dev_alloc_skb(stm->frame_max_size + 4);
-		if (!stm->rx_skb[i]) {
-			rv = -ENOMEM;
-			goto out;
-		}
-    }
-    /* now setup rx buffer descriptors */
-    for (i = 0; i < stm->rx_buf_num; i++) {
-        stm->rx_bd[i].stat = STM32_DMA_RBD_DMA_OWN;
-        stm->rx_bd[i].ctrl = STM32_DMA_RBD_RCH | stm->frame_max_size;
-        stm->rx_bd[i].buf = (dma_addr_t) sram_alloc(stm->frame_max_size + 4);
-        stm->rx_bd[i].next = stm->rx_bd_dma_phys_addr + (sizeof(struct stm32_eth_dma_bd) * ((i + 1) % stm->rx_buf_num));
-    }
-
-    /* for tx we use skbs receive from kernel. setup what we can for tx buffer descriptors */
-    for (i = 0; i < stm->tx_buf_num; i++) {
-        stm->tx_skb[i] = NULL;
-
-		stm->tx_bd[i].stat = STM32_DMA_TBD_TCH;
-		stm->tx_bd[i].ctrl = 0;
-		stm->tx_bd[i].buf  = (dma_addr_t) sram_alloc(stm->frame_max_size + 4);
-		stm->tx_bd[i].next = stm->tx_bd_dma_phys_addr + (sizeof(struct stm32_eth_dma_bd) * ((i + 1) % stm->tx_buf_num));
-    }
-
-	rv = 0;
-out:
-    debug("stm32_eth_buffers_alloc exit with %d\n", rv);
-	if (rv != 0)
-		stm32_eth_buffers_free(dev);
-
-	return rv;
-}
-
-#else
-static void stm32_eth_buffers_free(struct net_device *dev)
-{
-    struct stm32_eth_priv *stm = netdev_priv(dev);
-    int i;
-    
-    /* tx part */
-    if (stm->tx_bd) {
-        /* skb buffers */
-        for (i = 0; i < stm->tx_buf_num; i++) {
-            if (stm->tx_skb[i] != NULL) {
-                dma_unmap_single(&dev->dev, stm->tx_bd[i].buf, stm->tx_skb[i]->len, DMA_TO_DEVICE);
-                dev_kfree_skb(stm->tx_skb[i]);
-                stm->tx_skb[i] = NULL;
-            }
-        }
-        /* buffer descriptors */
-        dma_free_coherent(NULL, sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num, stm->tx_bd, stm->tx_bd_dma_phys_addr);
+        /* free buffer descriptors */
+        gen_pool_free(dma_pool, (unsigned long) stm->tx_bd, sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num);
         stm->tx_bd = NULL;
+        stm->tx_bd_dma_phys_addr = 0;
     }
 
-    /* rx part */
+    /* receive buffers */
     if (stm->rx_bd) {
-        /* skb buffers */
+        /* free buffers */
         for (i = 0; i < stm->rx_buf_num; i++) {
-            dma_unmap_single(&dev->dev, stm->rx_bd[i].buf, stm->rx_skb[i]->len, DMA_FROM_DEVICE);
-		    dev_kfree_skb(stm->rx_skb[i]);
-		    stm->rx_skb[i] = NULL;
+            if (stm->rx_buffer[i]) {
+                gen_pool_free(dma_pool, (unsigned long) stm->rx_buffer[i], stm->frame_max_size + 4);
+                stm->rx_buffer[i] = NULL;
+                stm->rx_bd[i].buf = 0;
+            }
         }
-        /* buffer descritors */
-        dma_free_coherent(NULL, sizeof(struct stm32_eth_dma_bd) * stm->rx_buf_num, stm->rx_bd, stm->rx_bd_dma_phys_addr);
-	    stm->rx_bd = NULL;
+        /* free buffer descriptors */
+        gen_pool_free(dma_pool, (unsigned long) stm->rx_bd, sizeof(struct stm32_eth_dma_bd) * stm->rx_buf_num);
+        stm->rx_bd = NULL;
+        stm->rx_bd_dma_phys_addr = 0;
     }
 }
 
@@ -387,42 +345,40 @@ static int stm32_eth_buffers_alloc(struct net_device *dev)
     struct stm32_eth_priv *stm = netdev_priv(dev);
     int i;
     int rv;
-    
+
     debug("stm32_eth_buffers_alloc\n");
     /* allocate buffer descriptor memory */
-    stm->rx_bd = dma_alloc_coherent(NULL, sizeof(struct stm32_eth_dma_bd) * stm->rx_buf_num,
-			                        &stm->rx_bd_dma_phys_addr, GFP_KERNEL | GFP_DMA);
-    stm->tx_bd = dma_alloc_coherent(NULL, sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num,
-			                        &stm->tx_bd_dma_phys_addr, GFP_KERNEL | GFP_DMA);
+    stm->rx_bd = (struct stm32_eth_dma_bd *) gen_pool_dma_alloc(dma_pool, sizeof(struct stm32_eth_dma_bd) * stm->rx_buf_num,
+                                                                &stm->rx_bd_dma_phys_addr);
+    stm->tx_bd = (struct stm32_eth_dma_bd *) gen_pool_dma_alloc(dma_pool, sizeof(struct stm32_eth_dma_bd) * stm->tx_buf_num,
+                                                                &stm->tx_bd_dma_phys_addr);
 
     if (!stm->rx_bd || !stm->tx_bd) {
 		rv = -ENOMEM;
 		goto out;
 	}
 
-    /* allocate skbs rx buffers */
-    for (i = 0; i < stm->rx_buf_num; i++) {
-		stm->rx_skb[i] = dev_alloc_skb(stm->frame_max_size + 4);
-		if (!stm->rx_skb[i]) {
-			rv = -ENOMEM;
-			goto out;
-		}
-    }
     /* now setup rx buffer descriptors */
     for (i = 0; i < stm->rx_buf_num; i++) {
         stm->rx_bd[i].stat = STM32_DMA_RBD_DMA_OWN;
         stm->rx_bd[i].ctrl = STM32_DMA_RBD_RCH | stm->frame_max_size;
-        stm->rx_bd[i].buf = dma_map_single(&dev->dev, stm->rx_skb[i]->data, stm->frame_max_size, DMA_FROM_DEVICE);
+        stm->rx_buffer[i] = gen_pool_dma_alloc(dma_pool, stm->frame_max_size + 4, & stm->rx_bd[i].buf);
+        if (!stm->rx_buffer[i]) {
+            rv = -ENOMEM;
+            goto out;
+            }
         stm->rx_bd[i].next = stm->rx_bd_dma_phys_addr + (sizeof(struct stm32_eth_dma_bd) * ((i + 1) % stm->rx_buf_num));
     }
 
     /* for tx we use skbs receive from kernel. setup what we can for tx buffer descriptors */
     for (i = 0; i < stm->tx_buf_num; i++) {
-        stm->tx_skb[i] = NULL;
-
 		stm->tx_bd[i].stat = STM32_DMA_TBD_TCH;
 		stm->tx_bd[i].ctrl = 0;
-		stm->tx_bd[i].buf  = 0;
+        stm->tx_buffer[i] = gen_pool_dma_alloc(dma_pool, stm->frame_max_size + 4, & stm->tx_bd[i].buf);
+        if (!stm->tx_buffer[i]) {
+            rv = -ENOMEM;
+            goto out;
+            }
 		stm->tx_bd[i].next = stm->tx_bd_dma_phys_addr + (sizeof(struct stm32_eth_dma_bd) * ((i + 1) % stm->tx_buf_num));
     }
 
@@ -434,7 +390,6 @@ out:
 
 	return rv;
 }
-#endif
 
 static void stm32_eth_tx_complete(struct net_device *dev)
 {
@@ -460,20 +415,13 @@ static void stm32_eth_tx_complete(struct net_device *dev)
 				stm->stat.tx_fifo_errors++;
 		} else {
 			stm->stat.tx_packets++;
-			stm->stat.tx_bytes += stm->tx_skb[index]->len;
+			stm->stat.tx_bytes += stm->tx_bd[index].ctrl;
 		}
 		if (status & STM32_DMA_TBD_EC) {
 			stm->stat.collisions += 16;
 		} else {
 			stm->stat.collisions += (status >> STM32_DMA_TBD_CC_BIT) & STM32_DMA_TBD_CC_MSK;
 		}
-      
-        /* release buffer */
-#if USE_SRAM_ALLOCATOR
-        dma_unmap_single(&dev->dev, stm->tx_bd[index].buf, stm->tx_skb[index]->len, DMA_TO_DEVICE);
-#endif
-		dev_kfree_skb_irq(stm->tx_skb[index]);
-		stm->tx_skb[index] = NULL;
         /* update pointers */
         stm->tx_buffer_nb_in_queue--;
         stm->tx_next_release_buffer_index = (stm->tx_next_release_buffer_index + 1) % stm->tx_buf_num;
@@ -527,12 +475,7 @@ static int stm32_eth_rx_get(struct net_device *dev, int processed, int budget)
 			stm->stat.rx_dropped++;
 			goto next;
 		}
-#if USE_SRAM_ALLOCATOR
-        skb_copy_to_linear_data(skb, (void *) stm->rx_bd[index].buf, len);
-#else
-        dma_sync_single_for_cpu(NULL, stm->rx_bd[index].buf, len, DMA_FROM_DEVICE);
-        skb_copy_to_linear_data(skb, stm->rx_skb[index]->data, len);
-#endif
+        skb_copy_to_linear_data(skb, stm->rx_buffer[index], len);
         skb_put(skb, len);
 		skb->protocol = eth_type_trans(skb, dev);
         netif_receive_skb(skb);
@@ -600,8 +543,10 @@ static int stm32_eth_rx_poll(struct napi_struct *napi, int budget)
 	int rx = 0;
 
     rx = stm32_eth_rx_get(dev, rx, budget);
+    spin_lock(&stm->rx_lock);
     stm->regs->dmaier |= STM32_MAC_DMAIER_RIE;
     napi_complete(napi);
+    spin_unlock(&stm->rx_lock);
 
     return rx;
 }
@@ -933,13 +878,9 @@ static int stm32_netdev_xmit(struct sk_buff *skb, struct net_device *dev)
 
     /* setup dma */
     dev->trans_start = jiffies;
-    stm->tx_skb[index] = skb;
     stm->tx_bd[index].ctrl = skb->len;
-#if USE_SRAM_ALLOCATOR
-    memcpy((void *)stm->tx_bd[index].buf, skb->data, skb->len);
-#else
-    stm->tx_bd[index].buf = dma_map_single(&dev->dev, skb->data, skb->len, DMA_TO_DEVICE);
-#endif
+    skb_copy_from_linear_data(skb, stm->tx_buffer[index], skb->len);
+    dev_kfree_skb(skb);
     /* full ethernet frame is in this buffer */
     stm->tx_bd[index].stat |= STM32_DMA_TBD_FS | STM32_DMA_TBD_LS | STM32_DMA_TBD_DMA_OWN | STM32_DMA_TBD_DMA_IC;
 
@@ -1007,8 +948,11 @@ static int __init stm32429i_eth_init(void)
     struct stm32_eth_priv *stm;
     char *p;
     int rv;
-    
+
     debug("stm32429i_eth_init\n");
+    /* create memory pool for buffers */
+    rv = init_dma_mem_pool();
+
     /* create ethernet device */
     dev = alloc_etherdev(sizeof(struct stm32_eth_priv));
     if (!dev) {
@@ -1063,6 +1007,15 @@ static int __init stm32429i_eth_init(void)
     stm->tx_is_blocked = 0;
     stm->rx_index = 0;
 
+    /* allocate mem for buffer array */
+    stm->rx_buffer = kmalloc(stm->rx_buf_num * sizeof(void *), GFP_KERNEL);
+    stm->tx_buffer = kmalloc(stm->tx_buf_num * sizeof(void *), GFP_KERNEL);
+    if (!stm->rx_buffer || !stm->tx_buffer) {
+		error("rx/tx (%d/%d) buffer array allocation failed\n", stm->rx_buf_num, stm->tx_buf_num);
+		rv = -ENOMEM;
+		goto out;
+	}
+
     /* register driver */
     rv = register_netdev(dev);
     if (rv) {
@@ -1089,6 +1042,7 @@ out:
 
 module_init(stm32429i_eth_init);
 
-/*MODULE_DESCRIPTION("stm32429i MAC driver");
+MODULE_ALIAS("need_to_be_define");
+MODULE_DESCRIPTION("stm32429i MAC driver");
 MODULE_AUTHOR("me");
-MODULE_LICENSE("GPL");*/
+MODULE_LICENSE("GPL");

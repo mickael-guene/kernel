@@ -5,6 +5,7 @@ config MACH_STM32429I
 	default y
     select SERIAL_CORE
     select SERIAL_CORE_CONSOLE
+    select GENERIC_ALLOCATOR
 	help
 	  Include support for the STMicro STM32429I-EVAL board
 
