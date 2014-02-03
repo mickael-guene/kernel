@@ -6,6 +6,8 @@ config MACH_STM32429I
     select SERIAL_CORE
     select SERIAL_CORE_CONSOLE
     select GENERIC_ALLOCATOR
+    select MFD_WM8994
+    select SND_SOC_WM8994
 	help
 	  Include support for the STMicro STM32429I-EVAL board
 

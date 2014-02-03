@@ -17,7 +17,7 @@
  * Define this to enable debugging msgs
  */
 #undef DEBUG
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #define debug(fmt,args...)	    printk(KERN_DEBUG fmt, ##args)

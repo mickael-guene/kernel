@@ -8,6 +8,10 @@
 #include <asm/mach/time.h>
 #include <mach/usart.h>
 
+extern void stm32429i_i2c_init(void);
+extern void stm32429i_i2s_init(void);
+extern void stm32429i_sound_init(void);
+
 /* prototype */
 static void __init stm32429i_init(void);
 static void __init stm32429i_init_irq(void);
@@ -26,6 +30,10 @@ static void __init stm32429i_init(void)
 
     /* init uart */
     stm32429i_uart_init();
+
+    stm32429i_i2c_init();
+    stm32429i_i2s_init();
+    stm32429i_sound_init();
 }
 
 /*
