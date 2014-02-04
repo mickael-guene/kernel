@@ -32,8 +32,8 @@ static void __init stm32429i_init(void)
     stm32429i_uart_init();
 
     stm32429i_i2c_init();
-    stm32429i_i2s_init();
-    stm32429i_sound_init();
+    //stm32429i_i2s_init();
+    //stm32429i_sound_init();
 }
 
 /*
