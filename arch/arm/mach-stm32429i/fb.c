@@ -21,6 +21,9 @@
 #define warning(fmt,args...)    printk(KERN_WARNING fmt, ##args)
 #define error(fmt,args...)	    printk(KERN_ERR fmt, ##args)
 
+#define VIDEO_MEMORY_ADDRESS    (0xc0000000 + 31*1024*1024)
+#define VIDEO_MEMORY_SIZE       (1024*1024)
+
 struct stm32_ltdc_layer_regs {
     u32	cr;             /* 0x00 *//* LTDC Layerx Control Register */
     u32	whpcr;          /* 0x04 *//* LTDC Layerx Window Horizontal Position Configuration Register */
@@ -173,11 +176,11 @@ static int stm32429i_fb_probe(struct platform_device *dev)
 
     /* fillup structure */
     info->pseudo_palette = par->pseudo_palette;
-    info->screen_base = ioremap(0xc0000000 + 31*1024*1024, 1024*1024);
+    info->screen_base = ioremap(VIDEO_MEMORY_ADDRESS, VIDEO_MEMORY_SIZE);
     info->fbops = &stm32429i_fb_ops;
     info->flags = FBINFO_DEFAULT;
     strcpy(info->fix.id, "STM32");
-    info->fix.smem_start = 0xc0000000 + 31*1024*1024;
+    info->fix.smem_start = VIDEO_MEMORY_ADDRESS;
     info->fix.smem_len = 480*272*3;
     info->fix.type = FB_TYPE_PACKED_PIXELS;
     info->fix.type_aux = 0;
