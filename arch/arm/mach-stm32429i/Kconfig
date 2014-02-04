@@ -8,6 +8,9 @@ config MACH_STM32429I
     select GENERIC_ALLOCATOR
     select MFD_WM8994
     select SND_SOC_WM8994
+    select FB_CFB_FILLRECT
+    select FB_CFB_COPYAREA
+    select FB_CFB_IMAGEBLIT
 	help
 	  Include support for the STMicro STM32429I-EVAL board
 

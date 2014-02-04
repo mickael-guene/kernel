@@ -2,4 +2,4 @@
 # Makefile for the STM32429I-EVAL platform files
 #
 
-obj-$(CONFIG_MACH_STM32429I)	+= stm32429i_platform.o nvic.o usart.o eth.o sound.o i2s.o i2c.o
+obj-$(CONFIG_MACH_STM32429I)	+= stm32429i_platform.o nvic.o usart.o eth.o sound.o i2s.o i2c.o fb.o
