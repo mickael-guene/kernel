@@ -543,10 +543,12 @@ static int stm32_eth_rx_poll(struct napi_struct *napi, int budget)
 	int rx = 0;
 
     rx = stm32_eth_rx_get(dev, rx, budget);
-    spin_lock(&stm->rx_lock);
-    stm->regs->dmaier |= STM32_MAC_DMAIER_RIE;
-    napi_complete(napi);
-    spin_unlock(&stm->rx_lock);
+    if (rx != budget) {
+        spin_lock(&stm->rx_lock);
+        stm->regs->dmaier |= STM32_MAC_DMAIER_RIE;
+        napi_complete(napi);
+        spin_unlock(&stm->rx_lock);
+    }
 
     return rx;
 }
