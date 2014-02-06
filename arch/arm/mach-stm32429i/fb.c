@@ -74,7 +74,7 @@ static int stm32429i_fb_check_var(struct fb_var_screeninfo *var, struct fb_info 
 {
     error("stm32429i_fb_check_var not yet implemented\n");
 
-    return -1;
+    return 0;
 }
 
 static int stm32429i_fb_set_par(struct fb_info *info)
