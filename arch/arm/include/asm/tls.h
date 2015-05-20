@@ -35,6 +35,10 @@
 #define tls_emu		1
 #define has_tls_reg		1
 #define switch_tls	switch_tls_none
+#elif defined(CONFIG_CPU_V7M)
+#define tls_emu		1
+#define has_tls_reg		0
+#define switch_tls	switch_tls_none
 #elif defined(CONFIG_CPU_V6)
 #define tls_emu		0
 #define has_tls_reg		(elf_hwcap & HWCAP_TLS)
