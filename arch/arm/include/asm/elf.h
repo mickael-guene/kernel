@@ -19,6 +19,8 @@ typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 
 typedef struct user_fp elf_fpregset_t;
 
+#define ELFOSABI_ARM_FDPIC	65 /* ARM FDPIC platform */
+
 #define EF_ARM_EABI_MASK	0xff000000
 #define EF_ARM_EABI_UNKNOWN	0x00000000
 #define EF_ARM_EABI_VER1	0x01000000
@@ -29,7 +31,6 @@ typedef struct user_fp elf_fpregset_t;
 
 #define EF_ARM_BE8		0x00800000	/* ABI 4,5 */
 #define EF_ARM_LE8		0x00400000	/* ABI 4,5 */
-#define EF_ARM_FDPIC		0x00001000
 #define EF_ARM_MAVERICK_FLOAT	0x00000800	/* ABI 0 */
 #define EF_ARM_VFP_FLOAT	0x00000400	/* ABI 0 */
 #define EF_ARM_SOFT_FLOAT	0x00000200	/* ABI 0 */
@@ -107,10 +108,10 @@ struct task_struct;
 int dump_task_regs(struct task_struct *t, elf_gregset_t *elfregs);
 #define ELF_CORE_COPY_TASK_REGS dump_task_regs
 
-#define elf_check_fdpic(x)		((x)->e_flags & EF_ARM_FDPIC)
+#define elf_check_fdpic(x)		((x)->e_ident[EI_OSABI] == ELFOSABI_ARM_FDPIC)
 #define elf_check_const_displacement(x)	((x)->e_flags & EF_ARM_PIC)
 
-#define ELF_FDPIC_CORE_EFLAGS	EF_ARM_FDPIC
+#define ELF_FDPIC_CORE_EFLAGS	0
 #define CORE_DUMP_USE_REGSET
 #define ELF_EXEC_PAGESIZE	4096
 
